@@ -1,0 +1,77 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os/signal"
+	"syscall"
+
+	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"go.uber.org/zap"
+
+	"go-sqs-worker-backoff/internal/config"
+	appsqs "go-sqs-worker-backoff/internal/sqs"
+	"go-sqs-worker-backoff/internal/worker"
+)
+
+type Planet struct {
+	Name    string `json:"name"`
+	Climate string `json:"climate"`
+	Terrain string `json:"terrain"`
+}
+
+type PlanetHandler struct {
+	log *zap.Logger
+}
+
+func (h *PlanetHandler) Handle(_ context.Context, msg types.Message) error {
+	if msg.Body == nil {
+		return fmt.Errorf("empty body")
+	}
+	var p Planet
+	if err := json.Unmarshal([]byte(*msg.Body), &p); err != nil {
+		return fmt.Errorf("json unmarshal: %w", err)
+	}
+	if p.Name == "" {
+		return fmt.Errorf("planet name is empty")
+	}
+	h.log.Info("planet received",
+		zap.String("name", p.Name),
+		zap.String("climate", p.Climate),
+		zap.String("terrain", p.Terrain),
+	)
+	return nil
+}
+
+func main() {
+	logger, err := zap.NewProduction()
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = logger.Sync() }()
+
+	cfg := config.Load()
+	logger.Info("starting worker",
+		zap.String("queue", cfg.QueueURL),
+		zap.Int("workers", cfg.Workers),
+		zap.Int("pollers", cfg.Pollers),
+		zap.Int("max_attempts", cfg.MaxAttempts),
+		zap.Duration("base_backoff", cfg.BaseBackoff),
+		zap.Duration("max_backoff", cfg.MaxBackoff),
+	)
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	consumer, err := appsqs.NewConsumer(ctx, cfg)
+	if err != nil {
+		logger.Fatal("failed to create consumer", zap.Error(err))
+	}
+
+	handler := &PlanetHandler{log: logger}
+	pool := worker.New(cfg, consumer, handler, logger)
+
+	pool.Start(ctx)
+	logger.Info("shutdown complete")
+}
