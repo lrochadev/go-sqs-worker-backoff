@@ -1,9 +1,12 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -20,11 +23,22 @@ type Config struct {
 	ShutdownTimeout   time.Duration
 }
 
-func Load() Config {
+func Load() (Config, error) {
+	_ = godotenv.Load()
+
+	queueURL := os.Getenv("SQS_QUEUE_URL")
+	if queueURL == "" {
+		return Config{}, errors.New("SQS_QUEUE_URL is required")
+	}
+	region := os.Getenv("AWS_REGION")
+	if region == "" {
+		return Config{}, errors.New("AWS_REGION is required")
+	}
+
 	return Config{
-		QueueURL:          getEnv("SQS_QUEUE_URL", "http://localhost:4566/000000000000/planet-queue"),
-		Region:            getEnv("AWS_REGION", "us-east-1"),
-		Endpoint:          getEnv("SQS_ENDPOINT", "http://localhost:4566"),
+		QueueURL:          queueURL,
+		Region:            region,
+		Endpoint:          os.Getenv("SQS_ENDPOINT"),
 		Workers:           getEnvInt("WORKERS", 10),
 		Pollers:           getEnvInt("POLLERS", 3),
 		MaxAttempts:       getEnvInt("MAX_ATTEMPTS", 3),
@@ -33,14 +47,7 @@ func Load() Config {
 		VisibilityTimeout: int32(getEnvInt("VISIBILITY_TIMEOUT_SECS", 30)),
 		WaitTimeSeconds:   int32(getEnvInt("WAIT_TIME_SECS", 20)),
 		ShutdownTimeout:   getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
-	}
-}
-
-func getEnv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
+	}, nil
 }
 
 func getEnvInt(key string, def int) int {
