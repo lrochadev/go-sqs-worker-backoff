@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -12,6 +13,7 @@ import (
 
 	"go-sqs-worker-backoff/internal/config"
 	"go-sqs-worker-backoff/internal/logging"
+	"go-sqs-worker-backoff/internal/metrics"
 	appsqs "go-sqs-worker-backoff/internal/sqs"
 	"go-sqs-worker-backoff/internal/worker"
 )
@@ -37,7 +39,7 @@ func (h *PlanetHandler) Handle(_ context.Context, msg types.Message) error {
 	if p.Name == "" {
 		return fmt.Errorf("planet name is empty")
 	}
-	h.log.Info("planet received",
+	h.log.Debug("planet received",
 		zap.String("name", p.Name),
 		zap.String("climate", p.Climate),
 		zap.String("terrain", p.Terrain),
@@ -64,6 +66,17 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	metrics.MustRegister()
+	metricsAddr := os.Getenv("METRICS_ADDR")
+	if metricsAddr == "" {
+		metricsAddr = ":8080"
+	}
+	go func() {
+		if err := metrics.Serve(ctx, metricsAddr, logger); err != nil {
+			logger.Error("metrics server error", zap.Error(err))
+		}
+	}()
 
 	consumer, err := appsqs.NewConsumer(ctx, cfg)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	appconfig "go-sqs-worker-backoff/internal/config"
+	"go-sqs-worker-backoff/internal/metrics"
 	appsqs "go-sqs-worker-backoff/internal/sqs"
 )
 
@@ -128,19 +129,27 @@ func (p *Pool) handleMessage(ctx context.Context, log *zap.Logger, msg types.Mes
 		)
 	}
 
+	metrics.InFlight.Inc()
 	err := p.handler.Handle(ctx, msg)
 	duration := time.Since(receivedAt)
+	metrics.InFlight.Dec()
 
 	if err == nil {
 		if delErr := p.consumer.Delete(ctx, msg.ReceiptHandle); delErr != nil {
 			log.Error("delete failed after success", zap.Error(delErr))
+			metrics.MessagesConsumed.WithLabelValues("delete_error").Inc()
+			metrics.ProcessingDuration.WithLabelValues("delete_error").Observe(duration.Seconds())
 			return
 		}
+		metrics.MessagesConsumed.WithLabelValues("success").Inc()
+		metrics.ProcessingDuration.WithLabelValues("success").Observe(duration.Seconds())
 		log.Info("message processed", zap.Duration("duration", duration))
 		return
 	}
 
 	if attempt >= p.cfg.MaxAttempts {
+		metrics.MessagesConsumed.WithLabelValues("failure").Inc()
+		metrics.ProcessingDuration.WithLabelValues("failure").Observe(duration.Seconds())
 		log.Error("max attempts reached, letting SQS route to DLQ",
 			zap.Error(err),
 			zap.Duration("duration", duration),
@@ -151,6 +160,8 @@ func (p *Pool) handleMessage(ctx context.Context, log *zap.Logger, msg types.Mes
 	delay := backoffDelay(p.cfg.BaseBackoff, p.cfg.MaxBackoff, attempt)
 	nextVisibleAt := time.Now().Add(delay)
 
+	metrics.MessagesRetried.Inc()
+	metrics.ProcessingDuration.WithLabelValues("retry").Observe(duration.Seconds())
 	log.Warn("processing failed, scheduling retry via ChangeMessageVisibility",
 		zap.Error(err),
 		zap.Duration("duration", duration),
