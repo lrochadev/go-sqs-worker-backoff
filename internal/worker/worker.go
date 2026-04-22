@@ -163,9 +163,7 @@ func (p *Pool) handleMessage(ctx context.Context, log *zap.Logger, msg types.Mes
 	}
 }
 
-// backoffDelay returns a full-jitter exponential backoff derived from the
-// current attempt. Each delivery recomputes independently, so we advance the
-// backoff generator attempt times to get the current interval.
+// backoffDelay returns the full-jitter exponential backoff duration for the given attempt number.
 func backoffDelay(base, max time.Duration, attempt int) time.Duration {
 	b := backoff.NewExponentialBackOff()
 	b.InitialInterval = base
