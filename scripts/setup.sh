@@ -90,6 +90,15 @@ ATTRS=$(docker compose exec -T localstack awslocal sqs get-queue-attributes \
 echo "$ATTRS"
 
 echo ""
+echo "=== Writing .env for local dev ==="
+cat > .env <<EOF
+SQS_QUEUE_URL=$QUEUE_URL
+AWS_REGION=us-east-1
+SQS_ENDPOINT=http://localhost:4566
+EOF
+echo "✓ .env written at $(pwd)/.env"
+
+echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "LocalStack is running on http://localhost:4566"
