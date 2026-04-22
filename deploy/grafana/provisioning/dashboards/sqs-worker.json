@@ -1,0 +1,89 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "liveNow": true,
+  "refresh": "2s",
+  "schemaVersion": 39,
+  "tags": ["sqs", "worker"],
+  "time": {"from": "now-15m", "to": "now"},
+  "timezone": "",
+  "title": "SQS Worker — Load Test",
+  "uid": "sqs-worker-load",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "TPS (total, 15s avg)",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "ops", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 2000}, {"color": "red", "value": 6000}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value", "colorMode": "value", "graphMode": "area"},
+      "targets": [{"expr": "sum(rate(sqs_messages_consumed_total{status=\"success\"}[15s]))", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total consumed (success)",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "value"},
+      "targets": [{"expr": "sum(sqs_messages_consumed_total{status=\"success\"})", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "In-flight",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "value"},
+      "targets": [{"expr": "sum(sqs_messages_in_flight)", "refId": "A"}]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "TPS per container",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 6},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10}}},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "sum by (instance) (rate(sqs_messages_consumed_total{status=\"success\"}[15s]))", "legendFormat": "{{instance}}", "refId": "A"}]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Success vs failure vs retry rate",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 6},
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10}}},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "sum(rate(sqs_messages_consumed_total{status=\"success\"}[15s]))", "legendFormat": "success", "refId": "A"},
+        {"expr": "sum(rate(sqs_messages_consumed_total{status=\"failure\"}[15s]))", "legendFormat": "failure", "refId": "B"},
+        {"expr": "sum(rate(sqs_messages_retried_total[15s]))", "legendFormat": "retry", "refId": "C"}
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Processing duration p50/p95/p99 (success)",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 15},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 5}}},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(sqs_message_processing_duration_seconds_bucket{status=\"success\"}[1m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(sqs_message_processing_duration_seconds_bucket{status=\"success\"}[1m])))", "legendFormat": "p95", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, sum by (le) (rate(sqs_message_processing_duration_seconds_bucket{status=\"success\"}[1m])))", "legendFormat": "p99", "refId": "C"}
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Runtime: goroutines / CPU",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 15},
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 5}}},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi"}},
+      "targets": [
+        {"expr": "go_goroutines", "legendFormat": "goroutines {{instance}}", "refId": "A"},
+        {"expr": "rate(process_cpu_seconds_total[30s])", "legendFormat": "cpu cores {{instance}}", "refId": "B"}
+      ]
+    }
+  ]
+}

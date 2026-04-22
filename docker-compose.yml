@@ -12,11 +12,83 @@ services:
       AWS_DEFAULT_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
-    volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock"
+      PERSISTENCE: 0
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
       interval: 5s
       timeout: 10s
       retries: 10
       start_period: 10s
+    networks: [appnet]
+
+  worker-1: &worker
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: go-sqs-worker-backoff:local
+    container_name: worker-1
+    depends_on:
+      localstack:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 768M
+    environment:
+      SQS_QUEUE_URL: http://localstack:4566/000000000000/planet-queue
+      SQS_ENDPOINT: http://localstack:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      WORKERS: "50"
+      POLLERS: "5"
+      MAX_ATTEMPTS: "3"
+      BASE_BACKOFF: 2s
+      MAX_BACKOFF: 60s
+      VISIBILITY_TIMEOUT_SECS: "60"
+      WAIT_TIME_SECS: "1"
+      METRICS_ADDR: ":8080"
+    ports:
+      - "8081:8080"
+    profiles: ["workers"]
+    networks: [appnet]
+
+  worker-2:
+    <<: *worker
+    container_name: worker-2
+    ports:
+      - "8082:8080"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=2h
+    ports:
+      - "9090:9090"
+    profiles: ["workers"]
+    networks: [appnet]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus]
+    profiles: ["workers"]
+    networks: [appnet]
+
+networks:
+  appnet:
+    driver: bridge
