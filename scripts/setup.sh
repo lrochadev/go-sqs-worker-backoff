@@ -39,27 +39,55 @@ QUEUE_URL=$(echo "$QUEUE_RESPONSE" | grep -o '"QueueUrl": "[^"]*' | cut -d'"' -f
 echo "Queue created: $QUEUE_URL"
 
 echo ""
-echo "=== Publishing test message ==="
-MESSAGE_BODY='{"name":"Tatooine","climate":"arid","terrain":"desert"}'
-docker compose exec -T localstack awslocal sqs send-message \
-  --queue-url "$QUEUE_URL" \
-  --message-body "$MESSAGE_BODY" > /dev/null
+echo "=== Publishing 20 valid + 2 poison-pill messages ==="
 
-echo "Message published: $MESSAGE_BODY"
+VALID=(
+  '{"name":"Tatooine","climate":"arid","terrain":"desert"}'
+  '{"name":"Alderaan","climate":"temperate","terrain":"grasslands"}'
+  '{"name":"Hoth","climate":"frozen","terrain":"tundra"}'
+  '{"name":"Dagobah","climate":"murky","terrain":"swamp"}'
+  '{"name":"Endor","climate":"temperate","terrain":"forest"}'
+  '{"name":"Naboo","climate":"temperate","terrain":"grassy hills"}'
+  '{"name":"Coruscant","climate":"temperate","terrain":"cityscape"}'
+  '{"name":"Bespin","climate":"temperate","terrain":"gas giant"}'
+  '{"name":"Kamino","climate":"stormy","terrain":"ocean"}'
+  '{"name":"Geonosis","climate":"arid","terrain":"rock"}'
+  '{"name":"Mustafar","climate":"hot","terrain":"volcanic"}'
+  '{"name":"Kashyyyk","climate":"tropical","terrain":"forest"}'
+  '{"name":"Utapau","climate":"arid","terrain":"sinkholes"}'
+  '{"name":"Mygeeto","climate":"frigid","terrain":"crystalline"}'
+  '{"name":"Felucia","climate":"hot","terrain":"fungi forest"}'
+  '{"name":"Cato Neimoidia","climate":"temperate","terrain":"rock arches"}'
+  '{"name":"Saleucami","climate":"hot","terrain":"caves"}'
+  '{"name":"Jakku","climate":"arid","terrain":"desert"}'
+  '{"name":"Crait","climate":"arid","terrain":"salt flats"}'
+  '{"name":"Exegol","climate":"stormy","terrain":"ruins"}'
+)
+
+# Poison pills: o consumer vai falhar no parse/validação destas,
+# fazendo elas entrarem em backoff e eventualmente DLQ (maxReceiveCount=3).
+POISON=(
+  'this-is-not-valid-json-at-all'
+  '{"name":123,"climate":true,"terrain":null}'
+)
+
+for body in "${VALID[@]}"; do
+  docker compose exec -T localstack awslocal sqs send-message \
+    --queue-url "$QUEUE_URL" --message-body "$body" > /dev/null
+done
+echo "✓ Published ${#VALID[@]} valid messages"
+
+for body in "${POISON[@]}"; do
+  docker compose exec -T localstack awslocal sqs send-message \
+    --queue-url "$QUEUE_URL" --message-body "$body" > /dev/null
+done
+echo "✓ Published ${#POISON[@]} poison-pill messages (should end up in DLQ after 3 retries)"
 
 echo ""
-echo "=== Verifying message in queue ==="
-MESSAGES=$(docker compose exec -T localstack awslocal sqs receive-message --queue-url "$QUEUE_URL" 2>/dev/null)
-
-if echo "$MESSAGES" | grep -q "Tatooine"; then
-    echo "✓ Message successfully received and exists in queue!"
-    echo ""
-    echo "Message content:"
-    echo "$MESSAGES" | grep -A 5 '"Body"' || true
-else
-    echo "✗ Message not found in queue"
-    exit 1
-fi
+echo "=== Verifying queue depth ==="
+ATTRS=$(docker compose exec -T localstack awslocal sqs get-queue-attributes \
+  --queue-url "$QUEUE_URL" --attribute-names ApproximateNumberOfMessages 2>/dev/null)
+echo "$ATTRS"
 
 echo ""
 echo "=== Setup Complete ==="
@@ -68,5 +96,5 @@ echo "LocalStack is running on http://localhost:4566"
 echo "Queue URL: $QUEUE_URL"
 echo "DLQ URL: $DLQ_URL"
 echo ""
-echo "To start the consumer, run: go run main.go"
+echo "To start the consumer, run: go run ./cmd/worker"
 echo "To stop LocalStack, run: docker compose down"
