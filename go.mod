@@ -9,6 +9,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.23.2
+	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/zap v1.27.1
 )
 
