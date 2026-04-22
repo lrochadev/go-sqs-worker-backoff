@@ -25,8 +25,19 @@ func New() *zap.Logger {
 	core := zapcore.NewCore(
 		zapcore.NewConsoleEncoder(encCfg),
 		zapcore.Lock(os.Stdout),
-		zap.InfoLevel,
+		parseLevel(os.Getenv("LOG_LEVEL")),
 	)
 
 	return zap.New(core, zap.AddCaller())
+}
+
+func parseLevel(s string) zapcore.Level {
+	if s == "" {
+		return zap.InfoLevel
+	}
+	var lvl zapcore.Level
+	if err := lvl.UnmarshalText([]byte(s)); err != nil {
+		return zap.InfoLevel
+	}
+	return lvl
 }
