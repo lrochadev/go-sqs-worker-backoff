@@ -143,7 +143,7 @@ func (p *Pool) handleMessage(ctx context.Context, log *zap.Logger, msg types.Mes
 		}
 		metrics.MessagesConsumed.WithLabelValues("success").Inc()
 		metrics.ProcessingDuration.WithLabelValues("success").Observe(duration.Seconds())
-		log.Info("message processed", zap.Duration("duration", duration))
+		log.Debug("message processed", zap.Duration("duration", duration))
 		return
 	}
 
