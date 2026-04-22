@@ -32,10 +32,33 @@ This script will:
 - Publish a test message
 - Verify the message exists in the queue
 
-### 2. Run the Consumer
+### 2. Configure environment variables
+
+The app loads config from a `.env` file (or from process env vars in production). A committed `.env.example` documents every supported variable.
+
+If you ran `./scripts/setup.sh`, a `.env` was generated automatically pointing at LocalStack — you can skip this step.
+
+Otherwise, copy the template and fill in the required values:
 
 ```bash
-go run main.go
+cp .env.example .env
+# then edit .env
+```
+
+**Required** variables (app fails fast if missing):
+- `SQS_QUEUE_URL` — full queue URL
+- `AWS_REGION` — e.g. `us-east-1`
+
+**Optional:**
+- `SQS_ENDPOINT` — set only for LocalStack or a custom endpoint; leave empty in prod so the SDK hits real AWS
+- `WORKERS`, `POLLERS`, `MAX_ATTEMPTS`, `BASE_BACKOFF`, `MAX_BACKOFF`, `VISIBILITY_TIMEOUT_SECS`, `WAIT_TIME_SECS`, `SHUTDOWN_TIMEOUT` — tuning knobs (see `.env.example` for defaults)
+
+> `.env` is gitignored. `.env.example` is committed.
+
+### 3. Run the Consumer
+
+```bash
+go run ./cmd/worker
 ```
 
 The consumer will:
@@ -45,7 +68,7 @@ The consumer will:
 - Delete successfully processed messages
 - Gracefully shutdown on `Ctrl+C`
 
-### 3. Stop LocalStack
+### 4. Stop LocalStack
 
 ```bash
 docker compose down
