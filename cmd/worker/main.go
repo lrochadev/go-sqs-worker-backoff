@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"go-sqs-worker-backoff/internal/config"
+	"go-sqs-worker-backoff/internal/logging"
 	appsqs "go-sqs-worker-backoff/internal/sqs"
 	"go-sqs-worker-backoff/internal/worker"
 )
@@ -45,10 +46,7 @@ func (h *PlanetHandler) Handle(_ context.Context, msg types.Message) error {
 }
 
 func main() {
-	logger, err := zap.NewProduction()
-	if err != nil {
-		panic(err)
-	}
+	logger := logging.New()
 	defer func() { _ = logger.Sync() }()
 
 	cfg := config.Load()
