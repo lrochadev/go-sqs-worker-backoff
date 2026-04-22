@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	_ "go.uber.org/automaxprocs"
 	"go.uber.org/zap"
 
 	"go-sqs-worker-backoff/internal/config"
