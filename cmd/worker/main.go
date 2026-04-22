@@ -49,7 +49,10 @@ func main() {
 	logger := logging.New()
 	defer func() { _ = logger.Sync() }()
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		logger.Fatal("invalid config", zap.Error(err))
+	}
 	logger.Info("starting worker",
 		zap.String("queue", cfg.QueueURL),
 		zap.Int("workers", cfg.Workers),
