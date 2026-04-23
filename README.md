@@ -205,3 +205,54 @@ Result on this machine (Apple Silicon, Docker Desktop, LocalStack 3.5.0):
 | worker-1 / worker-2 split | 249,620 / 250,380 |
 
 **Ceiling é do LocalStack, não do worker.** O handler leva ~0.5ms p99 — cada container tem capacidade ociosa vasta. O gargalo real é o broker SQS single-process do LocalStack, que serializa acesso à fila. Rodando em AWS SQS real (ou aumentando réplicas do worker com outro broker), o TPS sobe uma ordem de grandeza ou mais, limitado por CPU/rede do container. Em ECS, esse mesmo binário + dashboard Prometheus funciona sem alterações.
+
+## Configuração de produção
+
+### Variáveis de ambiente relevantes no ECS
+
+| Var | Valor em prod | Observação |
+|---|---|---|
+| `LOG_LEVEL` | `warn` | Silencia o log por mensagem. Warn/Error ficam. Use `debug` só pra troubleshoot. |
+| `WORKERS` | `20` | Afinado pro 0.25 vCPU do Fargate. Mais workers brigam por CPU. |
+| `POLLERS` | `3` | |
+| `VISIBILITY_TIMEOUT_SECS` | `60` | |
+| `WAIT_TIME_SECS` | `20` | Long-poll padrão do SQS. |
+
+Nada de `GOMAXPROCS` — o import `_ "go.uber.org/automaxprocs"` em `cmd/worker/main.go` detecta o limite do cgroup do Fargate em runtime.
+
+## Deploy em produção (ECS Fargate ARM64)
+
+A infra (SQS + DLQ + task def + service + roles OIDC) é provisionada via Terraform no repo privado **`lrochadev/infra-quest-starter`**, módulo `worker-planet-sqs/`. Nada de conta AWS, ARN ou queue URL vive nesse repo público.
+
+### Pipeline (`.github/workflows/deploy.yml`)
+
+Gatilho: **push na `main`**. A cada deploy o workflow:
+
+1. Build multi-stage ARM64 e push no ECR compartilhado com tag `v{YYYYMMDD}-{sha7}`.
+2. Checkout do `infra-quest-starter` (via PAT), `sed` no `prod.tfvars` trocando `image_tag`, commit+push com autor `github-actions[bot]`.
+3. `terraform apply` no módulo → nova revisão da task definition + rollout do serviço.
+4. `aws ecs wait services-stable` — job falha se o rollout não estabilizar.
+
+Rollback = `git revert` no commit de bump + re-push.
+
+### Secrets que o repo precisa (configurar uma vez)
+
+Após o `terraform apply` inicial do módulo, capture os outputs e:
+
+```bash
+TF_DIR=/path/to/infra-quest-starter/worker-planet-sqs
+cd $TF_DIR
+gh secret set AWS_ECR_PUSH_ROLE_ARN -b "$(terraform output -raw github_actions_ecr_push_role_arn)"
+gh secret set AWS_DEPLOY_ROLE_ARN   -b "$(terraform output -raw github_actions_deploy_role_arn)"
+gh secret set ECR_REGISTRY          -b "$(terraform output -raw ecr_registry)"
+gh secret set ECR_REPOSITORY        -b "$(terraform output -raw ecr_repository)"
+gh secret set INFRA_REPO_PAT        -b "<PAT com write em infra-quest-starter>"
+```
+
+### Load test em produção (200k mensagens)
+
+```bash
+AWS_PROFILE=prod TOTAL=200000 ./scripts/seed-prod.sh
+```
+
+O seed roda do laptop via cadeia de credenciais AWS padrão (SQS é endpoint público autenticado por IAM — sem tunnel SSM/bastion necessário). Depois é só acompanhar o drain no CloudWatch SQS ou Container Insights do ECS.
