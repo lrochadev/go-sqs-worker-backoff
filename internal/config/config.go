@@ -24,7 +24,9 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	_ = godotenv.Load()
+	if os.Getenv("APP_ENV") == "local" {
+		_ = godotenv.Load()
+	}
 
 	queueURL := os.Getenv("SQS_QUEUE_URL")
 	if queueURL == "" {
