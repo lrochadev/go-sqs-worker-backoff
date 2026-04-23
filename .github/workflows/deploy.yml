@@ -1,0 +1,116 @@
+name: deploy-prod
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-push:
+    name: Build ARM64 image & push to ECR
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        run: echo "tag=v$(date -u +%Y%m%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (ECR push)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Login to Amazon ECR
+        run: aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin "${{ secrets.ECR_REGISTRY }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push (linux/arm64)
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$TAG" --region us-east-2 >/dev/null 2>&1; then
+            echo "Tag $TAG already in ECR — skipping build."
+          else
+            docker buildx build \
+              --platform linux/arm64 \
+              --tag "$ECR_REGISTRY/$ECR_REPOSITORY:$TAG" \
+              --provenance=false \
+              --push .
+          fi
+
+  deploy:
+    name: Terraform apply (infra-quest-starter)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout infra repo
+        uses: actions/checkout@v4
+        with:
+          repository: lrochadev/infra-quest-starter
+          token: ${{ secrets.INFRA_REPO_PAT }}
+          path: infra
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Bump image_tag in worker-planet-sqs/prod.tfvars
+        working-directory: infra/worker-planet-sqs
+        env:
+          NEW_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          sed -i -E "s|^image_tag[[:space:]]*=.*|image_tag     = \"${NEW_TAG}\"|" prod.tfvars
+          if git diff --quiet prod.tfvars; then
+            echo "image_tag already at ${NEW_TAG}, nothing to commit."
+          else
+            git add prod.tfvars
+            git commit -m "chore(worker-planet-sqs): bump image to ${NEW_TAG}"
+            git push origin HEAD:main
+          fi
+
+      - name: Configure AWS credentials (deploy)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.2
+
+      - name: Terraform init
+        working-directory: infra/worker-planet-sqs
+        run: terraform init -input=false
+
+      - name: Terraform apply
+        working-directory: infra/worker-planet-sqs
+        run: terraform apply -input=false -auto-approve -var-file=prod.tfvars
+
+      - name: Wait for ECS rollout
+        run: |
+          aws ecs wait services-stable \
+            --cluster ecs-cluster \
+            --services service-planet-worker
+          aws ecs describe-services \
+            --cluster ecs-cluster \
+            --services service-planet-worker \
+            --query 'services[0].{desired:desiredCount,running:runningCount,rollout:deployments[0].rolloutState}'
