@@ -11,8 +11,9 @@
 #   AWS_PROFILE=other ./scripts/seed-prod.sh
 #
 # Depois de enfileirar:
-#   - acompanhe o drain no CloudWatch (SQS > planet-queue > ApproximateNumberOfMessagesVisible)
-#   - ou via CLI:   watch -n 5 'aws sqs get-queue-attributes --queue-url "$SQS_QUEUE_URL" --attribute-names ApproximateNumberOfMessagesVisible'
+#   - acompanhe o drain no CloudWatch (SQS > planet-queue > ApproximateNumberOfMessagesVisible — nome da métrica CloudWatch)
+#   - ou via CLI:   watch -n 5 'aws sqs get-queue-attributes --queue-url "$SQS_QUEUE_URL" --attribute-names ApproximateNumberOfMessages'
+#     (no GetQueueAttributes o atributo é ApproximateNumberOfMessages, sem "Visible" — diferente do nome da métrica CloudWatch)
 
 set -euo pipefail
 
@@ -22,7 +23,8 @@ set -euo pipefail
 : "${SEED_WORKERS:=64}"
 
 export AWS_PROFILE AWS_REGION
-unset SQS_ENDPOINT  # crítico — garante que SDK vai para AWS real, não LocalStack
+# O binário só carrega .env quando APP_ENV=local. Este script não seta APP_ENV,
+# então o .env de desenvolvimento (LocalStack) é ignorado — SDK usa AWS default.
 
 SQS_QUEUE_URL=$(aws sqs get-queue-url --queue-name planet-queue --query QueueUrl --output text)
 export SQS_QUEUE_URL
@@ -41,4 +43,4 @@ echo
 echo "Depth check:"
 aws sqs get-queue-attributes \
   --queue-url "$SQS_QUEUE_URL" \
-  --attribute-names ApproximateNumberOfMessagesVisible ApproximateNumberOfMessagesNotVisible
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible

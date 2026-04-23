@@ -43,7 +43,9 @@ var planets = []string{
 }
 
 func main() {
-	_ = godotenv.Load()
+	if os.Getenv("APP_ENV") == "local" {
+		_ = godotenv.Load()
+	}
 
 	total := flag.Int("total", 500_000, "total messages to publish")
 	workers := flag.Int("workers", 64, "concurrent senders")
@@ -131,10 +133,21 @@ func main() {
 				})
 				if err != nil {
 					failed.Add(int64(n))
+					log.Printf("SendMessageBatch failed (batch=%d, n=%d): %v", batchIdx, n, err)
 					continue
 				}
 				sent.Add(int64(len(out.Successful)))
 				failed.Add(int64(len(out.Failed)))
+				for _, f := range out.Failed {
+					var code, msg string
+					if f.Code != nil {
+						code = *f.Code
+					}
+					if f.Message != nil {
+						msg = *f.Message
+					}
+					log.Printf("entry failed: code=%s sender=%t msg=%s", code, f.SenderFault, msg)
+				}
 			}
 		}(w)
 	}
