@@ -15,6 +15,7 @@ import (
 	"go-sqs-worker-backoff/internal/config"
 	"go-sqs-worker-backoff/internal/logging"
 	"go-sqs-worker-backoff/internal/metrics"
+	appsns "go-sqs-worker-backoff/internal/sns"
 	appsqs "go-sqs-worker-backoff/internal/sqs"
 	"go-sqs-worker-backoff/internal/worker"
 )
@@ -84,9 +85,23 @@ func main() {
 		logger.Fatal("failed to create consumer", zap.Error(err))
 	}
 
+	publisher, err := appsns.New(ctx, cfg, consumer, logger)
+	if err != nil {
+		logger.Fatal("failed to create sns publisher", zap.Error(err))
+	}
+	publisher.Start(ctx)
+	logger.Info("sns publisher started",
+		zap.String("topic_arn", cfg.SNSTopicARN),
+		zap.Int("batch_size", cfg.SNSBatchSize),
+		zap.Duration("linger", cfg.SNSLinger),
+		zap.Int("publishers", cfg.SNSPublishers),
+	)
+
 	handler := &PlanetHandler{log: logger}
-	pool := worker.New(cfg, consumer, handler, logger)
+	pool := worker.New(cfg, consumer, handler, publisher, logger)
 
 	pool.Start(ctx)
+	logger.Info("pool stopped, flushing sns publisher")
+	publisher.Shutdown()
 	logger.Info("shutdown complete")
 }

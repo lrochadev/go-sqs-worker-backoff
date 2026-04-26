@@ -4,11 +4,17 @@ A Go SQS consumer service using LocalStack for local development and testing.
 
 ## Overview
 
+**Version:** 0.2.0
+
 This project implements an SQS message consumer that:
-- Consumes messages from an SQS queue
+- Consumes messages from `planet-queue` (long polling, 10 msgs/request)
 - Parses JSON payloads (planet data)
 - Logs structured message data
-- Gracefully handles message deletion and shutdown
+- Republishes each message body to the `planet-topic` SNS topic via `PublishBatch` with a linger+batch aggregator (1 aggregator goroutine + N publishers)
+- Attaches a random `correlation-id` as an SNS `MessageAttribute` on every entry
+- Deletes SQS messages only after SNS confirms the publish — **at-least-once end-to-end** (on SNS failure, the message is redelivered via visibility timeout and retried with exponential backoff)
+- Uses `DeleteMessageBatch` to ack up to 10 receipts per round-trip, closing the batch symmetry (10 receive → 10 publish → 10 delete)
+- Gracefully flushes pending entries on shutdown
 
 ## Prerequisites
 
@@ -48,10 +54,18 @@ cp .env.example .env
 **Required** variables (app fails fast if missing):
 - `SQS_QUEUE_URL` — full queue URL
 - `AWS_REGION` — e.g. `us-east-1`
+- `SNS_TOPIC_ARN` — full ARN of the SNS topic to republish to
 
 **Optional:**
-- `SQS_ENDPOINT` — set only for LocalStack or a custom endpoint; leave empty in prod so the SDK hits real AWS
+- `SQS_ENDPOINT` / `SNS_ENDPOINT` — set only for LocalStack or a custom endpoint; leave empty in prod so the SDK hits real AWS. If `SNS_ENDPOINT` is unset, it falls back to `SQS_ENDPOINT`.
 - `WORKERS`, `POLLERS`, `MAX_ATTEMPTS`, `BASE_BACKOFF`, `MAX_BACKOFF`, `VISIBILITY_TIMEOUT_SECS`, `WAIT_TIME_SECS`, `SHUTDOWN_TIMEOUT` — tuning knobs (see `.env.example` for defaults)
+- `SNS_BATCH_SIZE` (default 10, clamped to AWS max 10), `SNS_LINGER` (default `150ms`), `SNS_PUBLISHERS` (default 8 goroutines), `SNS_INPUT_BUFFER` (default `WORKERS*4`)
+
+### SNS publishing design
+
+Instead of Java's `ExecutorService + BlockingQueue + 512-thread pool`, the Go version uses **1 aggregator goroutine + N publisher goroutines + a buffered channel**. The aggregator flushes whenever the batch hits `SNS_BATCH_SIZE` or the linger timer fires. Publishers call `sns:PublishBatch`; on success, receipts are batched through `sqs:DeleteMessageBatch` (1 round-trip). On failure, no delete happens — the SQS message becomes visible again and falls into the existing retry/backoff.
+
+**Rough throughput (batch=10, linger=150ms, publishers=8):** ~1,000–1,600 msgs/s sustained, limited mostly by SNS publish latency (~40–80ms/call). Scale `SNS_PUBLISHERS` if you need more.
 
 > `.env` is gitignored. `.env.example` is committed.
 
@@ -68,7 +82,15 @@ The consumer will:
 - Delete successfully processed messages
 - Gracefully shutdown on `Ctrl+C`
 
-### 4. Stop LocalStack
+### 4. Run tests
+
+```bash
+go test ./... -race -cover
+```
+
+Current coverage: `config` 93%, `worker` 90%, `sns` 76%, `sqs` 66%.
+
+### 5. Stop LocalStack
 
 ```bash
 docker compose down
