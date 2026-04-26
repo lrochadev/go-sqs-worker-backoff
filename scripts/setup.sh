@@ -11,7 +11,9 @@ echo "=== Waiting for LocalStack to be ready ==="
 max_attempts=60
 attempt=0
 while [ $attempt -lt $max_attempts ]; do
-    if curl -s http://localhost:4566/_localstack/health | grep -q '"sqs": "available"\|"sqs": "running"'; then
+    health=$(curl -s http://localhost:4566/_localstack/health || true)
+    if echo "$health" | grep -q '"sqs": "\(available\|running\)"' \
+       && echo "$health" | grep -q '"sns": "\(available\|running\)"'; then
         echo "LocalStack is ready!"
         break
     fi
@@ -42,10 +44,19 @@ echo "Queue: $QUEUE_URL"
 # Host-facing URL (containers use http://localstack:4566; host scripts use localhost:4566)
 HOST_QUEUE_URL=$(echo "$QUEUE_URL" | sed 's#http://localstack:4566#http://localhost:4566#')
 
+echo ""
+echo "=== Creating SNS topic ==="
+docker compose exec -T localstack awslocal sns create-topic --name planet-topic > /dev/null
+SNS_TOPIC_ARN=$(docker compose exec -T localstack awslocal sns list-topics | grep -o '"TopicArn": "[^"]*planet-topic' | cut -d'"' -f4)
+echo "Topic: $SNS_TOPIC_ARN"
+
 cat > .env <<EOF
+APP_ENV=local
 SQS_QUEUE_URL=$HOST_QUEUE_URL
 AWS_REGION=us-east-1
 SQS_ENDPOINT=http://localhost:4566
+SNS_ENDPOINT=http://localhost:4566
+SNS_TOPIC_ARN=$SNS_TOPIC_ARN
 AWS_ACCESS_KEY_ID=test
 AWS_SECRET_ACCESS_KEY=test
 EOF

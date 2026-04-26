@@ -6,7 +6,7 @@ services:
     ports:
       - "4566:4566"
     environment:
-      SERVICES: sqs
+      SERVICES: sqs,sns
       DEFAULT_REGION: us-east-1
       DEBUG: 0
       AWS_DEFAULT_REGION: us-east-1
@@ -38,6 +38,8 @@ services:
     environment:
       SQS_QUEUE_URL: http://localstack:4566/000000000000/planet-queue
       SQS_ENDPOINT: http://localstack:4566
+      SNS_ENDPOINT: http://localstack:4566
+      SNS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:planet-topic
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
@@ -48,6 +50,9 @@ services:
       MAX_BACKOFF: 60s
       VISIBILITY_TIMEOUT_SECS: "60"
       WAIT_TIME_SECS: "1"
+      SNS_BATCH_SIZE: "10"
+      SNS_LINGER: 150ms
+      SNS_PUBLISHERS: "8"
       METRICS_ADDR: ":8080"
     ports:
       - "8081:8080"
