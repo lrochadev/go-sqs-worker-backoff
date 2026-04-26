@@ -25,15 +25,23 @@ type Handler interface {
 	Handle(ctx context.Context, msg types.Message) error
 }
 
-type Pool struct {
-	cfg      appconfig.Config
-	consumer SQSAPI
-	handler  Handler
-	log      *zap.Logger
+// Publisher hands a processed message off for downstream SNS publication.
+// On publish success, the publisher is responsible for deleting the SQS
+// message via its own batched delete.
+type Publisher interface {
+	Enqueue(body, receipt string)
 }
 
-func New(cfg appconfig.Config, consumer SQSAPI, handler Handler, log *zap.Logger) *Pool {
-	return &Pool{cfg: cfg, consumer: consumer, handler: handler, log: log}
+type Pool struct {
+	cfg       appconfig.Config
+	consumer  SQSAPI
+	handler   Handler
+	publisher Publisher
+	log       *zap.Logger
+}
+
+func New(cfg appconfig.Config, consumer SQSAPI, handler Handler, publisher Publisher, log *zap.Logger) *Pool {
+	return &Pool{cfg: cfg, consumer: consumer, handler: handler, publisher: publisher, log: log}
 }
 
 func (p *Pool) Start(ctx context.Context) {
@@ -135,15 +143,18 @@ func (p *Pool) handleMessage(ctx context.Context, log *zap.Logger, msg types.Mes
 	metrics.InFlight.Dec()
 
 	if err == nil {
-		if delErr := p.consumer.Delete(ctx, msg.ReceiptHandle); delErr != nil {
-			log.Error("delete failed after success", zap.Error(delErr))
-			metrics.MessagesConsumed.WithLabelValues("delete_error").Inc()
-			metrics.ProcessingDuration.WithLabelValues("delete_error").Observe(duration.Seconds())
-			return
+		body := ""
+		if msg.Body != nil {
+			body = *msg.Body
 		}
+		receipt := ""
+		if msg.ReceiptHandle != nil {
+			receipt = *msg.ReceiptHandle
+		}
+		p.publisher.Enqueue(body, receipt)
 		metrics.MessagesConsumed.WithLabelValues("success").Inc()
 		metrics.ProcessingDuration.WithLabelValues("success").Observe(duration.Seconds())
-		log.Debug("message processed", zap.Duration("duration", duration))
+		log.Debug("message handled, enqueued for sns publish", zap.Duration("duration", duration))
 		return
 	}
 
