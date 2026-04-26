@@ -73,6 +73,42 @@ func (c *Consumer) Delete(ctx context.Context, receipt *string) error {
 	return err
 }
 
+// DeleteBatch deletes up to 10 messages in a single round-trip. Returns the
+// receipts SQS reported as failed (empty on full success).
+func (c *Consumer) DeleteBatch(ctx context.Context, receipts []string) ([]string, error) {
+	if len(receipts) == 0 {
+		return nil, nil
+	}
+	entries := make([]types.DeleteMessageBatchRequestEntry, len(receipts))
+	for i, r := range receipts {
+		id := strconv.Itoa(i)
+		receipt := r
+		entries[i] = types.DeleteMessageBatchRequestEntry{
+			Id:            &id,
+			ReceiptHandle: &receipt,
+		}
+	}
+	out, err := c.client.DeleteMessageBatch(ctx, &sqs.DeleteMessageBatchInput{
+		QueueUrl: &c.queueURL,
+		Entries:  entries,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var failed []string
+	for _, f := range out.Failed {
+		if f.Id == nil {
+			continue
+		}
+		idx, convErr := strconv.Atoi(*f.Id)
+		if convErr != nil || idx < 0 || idx >= len(receipts) {
+			continue
+		}
+		failed = append(failed, receipts[idx])
+	}
+	return failed, nil
+}
+
 func (c *Consumer) ChangeVisibility(ctx context.Context, receipt *string, seconds int32) error {
 	_, err := c.client.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
 		QueueUrl:          &c.queueURL,
