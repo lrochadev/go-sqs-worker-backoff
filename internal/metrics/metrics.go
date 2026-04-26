@@ -41,10 +41,36 @@ var (
 			Help: "Messages currently being processed by handlers.",
 		},
 	)
+
+	SNSPublishTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "sns_publish_total",
+			Help: "Total SNS PublishBatch outcomes per entry, labeled by status.",
+		},
+		[]string{"status"},
+	)
+
+	SNSPublishBatchDuration = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "sns_publish_batch_duration_seconds",
+			Help:    "Wall-clock time of a single sns:PublishBatch call.",
+			Buckets: prometheus.ExponentialBuckets(0.005, 2, 12),
+		},
+	)
+
+	SNSPendingBuffer = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "sns_pending_buffer",
+			Help: "Entries currently buffered in the publisher input channel.",
+		},
+	)
 )
 
 func MustRegister() {
-	prometheus.MustRegister(MessagesConsumed, MessagesRetried, ProcessingDuration, InFlight)
+	prometheus.MustRegister(
+		MessagesConsumed, MessagesRetried, ProcessingDuration, InFlight,
+		SNSPublishTotal, SNSPublishBatchDuration, SNSPendingBuffer,
+	)
 }
 
 // Serve starts an HTTP server exposing /metrics and /healthz. It blocks until
