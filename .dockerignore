@@ -1,6 +1,6 @@
 .git
 .gitignore
-.env
+scripts/.env
 .env.example
 *.md
 Dockerfile

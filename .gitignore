@@ -17,7 +17,7 @@
 .idea/
 
 # Local env
-.env
+scripts/.env
 
 # Private deploy notes (references private infra repo)
 DEPLOY.md
