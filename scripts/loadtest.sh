@@ -47,7 +47,8 @@ docker compose exec -T localstack awslocal sqs get-queue-attributes \
 echo ""
 echo "=== 5/6 Starting workers ($WORKERS) + Prometheus + Grafana ==="
 T0=$(date +%s)
-docker compose up -d $WORKERS prometheus grafana
+docker compose up -d --force-recreate --no-deps $WORKERS
+docker compose up -d prometheus grafana
 
 echo ""
 echo "=== 6/6 Monitoring drain (Ctrl-C to abort; stats every 5s) ==="
@@ -98,11 +99,25 @@ echo " messages:     $TOTAL"
 echo " workers:      $(echo $WORKERS | wc -w | tr -d ' ') ($WORKERS)"
 echo " total_time:   ${TOTAL_ELAPSED}s"
 if [ "$TOTAL_ELAPSED" -gt 0 ]; then
-  echo " avg_tps:      $((TOTAL / TOTAL_ELAPSED)) msg/s"
+  echo " avg_tps:      $(awk -v t="$TOTAL" -v e="$TOTAL_ELAPSED" 'BEGIN{printf "%.2f", t/e}') msg/s"
 fi
+
+WINDOW_SECS=$((TOTAL_ELAPSED + 10))
+PEAK_QUERY="max_over_time(sum(rate(sqs_messages_consumed_total{status=\"success\"}[15s]))[${WINDOW_SECS}s:5s] @ ${T1})"
+PEAK=$(curl -sG http://localhost:9090/api/v1/query \
+  --data-urlencode "query=${PEAK_QUERY}" 2>/dev/null \
+  | grep -o '"value":\[[^]]*\]' \
+  | grep -oE '"[0-9.]+([eE][+-]?[0-9]+)?"' \
+  | tail -1 | tr -d '"' || echo "")
+if [ -n "$PEAK" ]; then
+  echo " peak_tps:     $(awk -v p="$PEAK" 'BEGIN{printf "%.2f", p}') msg/s"
+else
+  echo " peak_tps:     (Prometheus unreachable — query manually below)"
+fi
+
 echo ""
 echo " Peak TPS (Prometheus query):"
-echo "   max_over_time(sum(rate(sqs_messages_consumed_total{status=\"success\"}[30s]))[30m:])"
+echo "   ${PEAK_QUERY}"
 echo " Open: http://localhost:9090/graph"
 echo " Dashboard: http://localhost:3000/d/sqs-worker-load"
 echo "========================================"
