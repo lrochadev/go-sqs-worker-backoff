@@ -19,6 +19,11 @@ services:
       timeout: 10s
       retries: 10
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 512M
     networks: [appnet]
 
   worker-1: &worker
@@ -43,16 +48,17 @@ services:
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
-      WORKERS: "50"
-      POLLERS: "5"
+      WORKERS: "${WORKERS_PER_CONTAINER:-50}"
+      POLLERS: "${POLLERS:-8}"
       MAX_ATTEMPTS: "3"
       BASE_BACKOFF: 2s
       MAX_BACKOFF: 60s
       VISIBILITY_TIMEOUT_SECS: "60"
-      WAIT_TIME_SECS: "1"
+      WAIT_TIME_SECS: "${WAIT_TIME_SECS:-1}"
       SNS_BATCH_SIZE: "10"
-      SNS_LINGER: 150ms
+      SNS_LINGER: "${SNS_LINGER:-50ms}"
       SNS_PUBLISHERS: "8"
+      SNS_ENABLED: "${SNS_ENABLED:-true}"
       METRICS_ADDR: ":8080"
     ports:
       - "8081:8080"
