@@ -85,17 +85,33 @@ func main() {
 		logger.Fatal("failed to create consumer", zap.Error(err))
 	}
 
-	publisher, err := appsns.New(ctx, cfg, consumer, logger)
-	if err != nil {
-		logger.Fatal("failed to create sns publisher", zap.Error(err))
+	type managedPublisher interface {
+		Start(context.Context)
+		Shutdown()
+		Enqueue(body, receipt string)
+	}
+
+	var publisher managedPublisher
+	if cfg.SNSEnabled {
+		p, err := appsns.New(ctx, cfg, consumer, logger)
+		if err != nil {
+			logger.Fatal("failed to create sns publisher", zap.Error(err))
+		}
+		publisher = p
+		logger.Info("sns publisher started",
+			zap.String("topic_arn", cfg.SNSTopicARN),
+			zap.Int("batch_size", cfg.SNSBatchSize),
+			zap.Duration("linger", cfg.SNSLinger),
+			zap.Int("publishers", cfg.SNSPublishers),
+		)
+	} else {
+		publisher = appsns.NewNoop(cfg, consumer, logger)
+		logger.Info("sns disabled, using direct-delete publisher (benchmark mode)",
+			zap.Int("batch_size", cfg.SNSBatchSize),
+			zap.Duration("linger", cfg.SNSLinger),
+		)
 	}
 	publisher.Start(ctx)
-	logger.Info("sns publisher started",
-		zap.String("topic_arn", cfg.SNSTopicARN),
-		zap.Int("batch_size", cfg.SNSBatchSize),
-		zap.Duration("linger", cfg.SNSLinger),
-		zap.Int("publishers", cfg.SNSPublishers),
-	)
 
 	handler := &PlanetHandler{log: logger}
 	pool := worker.New(cfg, consumer, handler, publisher, logger)

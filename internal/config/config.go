@@ -22,6 +22,7 @@ type Config struct {
 	WaitTimeSeconds   int32
 	ShutdownTimeout   time.Duration
 
+	SNSEnabled     bool
 	SNSTopicARN    string
 	SNSEndpoint    string
 	SNSBatchSize   int
@@ -42,9 +43,10 @@ func Load() (Config, error) {
 		return Config{}, errors.New("AWS_REGION is required")
 	}
 
+	snsEnabled := getEnvBool("SNS_ENABLED", true)
 	topicARN := os.Getenv("SNS_TOPIC_ARN")
-	if topicARN == "" {
-		return Config{}, errors.New("SNS_TOPIC_ARN is required")
+	if snsEnabled && topicARN == "" {
+		return Config{}, errors.New("SNS_TOPIC_ARN is required when SNS_ENABLED=true")
 	}
 
 	sqsEndpoint := os.Getenv("SQS_ENDPOINT")
@@ -76,6 +78,7 @@ func Load() (Config, error) {
 		WaitTimeSeconds:   int32(getEnvInt("WAIT_TIME_SECS", 20)),
 		ShutdownTimeout:   getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
 
+		SNSEnabled:     snsEnabled,
 		SNSTopicARN:    topicARN,
 		SNSEndpoint:    snsEndpoint,
 		SNSBatchSize:   batchSize,
@@ -89,6 +92,15 @@ func getEnvInt(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return def
+}
+
+func getEnvBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
 		}
 	}
 	return def
