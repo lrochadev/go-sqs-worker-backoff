@@ -43,9 +43,7 @@ var planets = []string{
 }
 
 func main() {
-	if os.Getenv("APP_ENV") == "local" {
-		_ = godotenv.Load()
-	}
+	_ = godotenv.Load()
 
 	total := flag.Int("total", 500_000, "total messages to publish")
 	workers := flag.Int("workers", 64, "concurrent senders")
