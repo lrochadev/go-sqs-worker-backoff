@@ -209,6 +209,11 @@ In production (ECS), the same endpoint is scraped by the Amazon Managed Promethe
 ./scripts/loadtest.sh        # seed 500k, start 2 workers, drain, report TPS
 ```
 
+Knobs (env vars):
+
+- `TOTAL` — number of messages to seed (default `500000`).
+- `WORKERS` — space-separated list of compose services to start (default `"worker-1 worker-2"`). To run with a single container: `WORKERS=worker-1 ./scripts/loadtest.sh`. Make sure the listed services exist in `docker-compose.yml` (e.g. `worker-2` is commented out by default).
+
 Open dashboards:
 - Grafana: http://localhost:3000 (anonymous viewer; admin/admin for edit)
 - Prometheus: http://localhost:9090
