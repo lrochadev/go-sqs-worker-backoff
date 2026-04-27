@@ -4,6 +4,9 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 echo "=== Starting LocalStack ==="
 docker compose up -d localstack
 
@@ -50,7 +53,7 @@ docker compose exec -T localstack awslocal sns create-topic --name planet-topic 
 SNS_TOPIC_ARN=$(docker compose exec -T localstack awslocal sns list-topics | grep -o '"TopicArn": "[^"]*planet-topic' | cut -d'"' -f4)
 echo "Topic: $SNS_TOPIC_ARN"
 
-cat > .env <<EOF
+cat > "$PROJECT_ROOT/.env" <<EOF
 APP_ENV=local
 SQS_QUEUE_URL=$HOST_QUEUE_URL
 AWS_REGION=us-east-1
@@ -60,6 +63,6 @@ SNS_TOPIC_ARN=$SNS_TOPIC_ARN
 AWS_ACCESS_KEY_ID=test
 AWS_SECRET_ACCESS_KEY=test
 EOF
-echo "✓ .env written"
+echo "✓ .env written to $PROJECT_ROOT/.env"
 echo ""
 echo "Queues ready. Now run: ./scripts/loadtest.sh"
