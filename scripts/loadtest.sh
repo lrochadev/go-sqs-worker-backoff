@@ -10,6 +10,7 @@
 set -e
 
 TOTAL="${TOTAL:-500000}"
+WORKERS="${WORKERS:-worker-1 worker-2}"
 cd "$(dirname "$0")/.."
 
 echo "=== 1/6 Ensure localstack up ==="
@@ -44,9 +45,9 @@ docker compose exec -T localstack awslocal sqs get-queue-attributes \
   --attribute-names ApproximateNumberOfMessages
 
 echo ""
-echo "=== 5/6 Starting 2 workers + Prometheus + Grafana ==="
+echo "=== 5/6 Starting workers ($WORKERS) + Prometheus + Grafana ==="
 T0=$(date +%s)
-docker compose --profile workers up -d worker-1 worker-2 prometheus grafana
+docker compose up -d $WORKERS prometheus grafana
 
 echo ""
 echo "=== 6/6 Monitoring drain (Ctrl-C to abort; stats every 5s) ==="
@@ -83,7 +84,7 @@ while true; do
     break
   fi
   LAST="$REMAINING"
-  sleep 5
+  sleep 3
 done
 
 T1=$(date +%s)
@@ -94,7 +95,7 @@ echo "========================================"
 echo " LOAD TEST COMPLETE"
 echo "========================================"
 echo " messages:     $TOTAL"
-echo " workers:      2"
+echo " workers:      $(echo $WORKERS | wc -w | tr -d ' ') ($WORKERS)"
 echo " total_time:   ${TOTAL_ELAPSED}s"
 if [ "$TOTAL_ELAPSED" -gt 0 ]; then
   echo " avg_tps:      $((TOTAL / TOTAL_ELAPSED)) msg/s"
